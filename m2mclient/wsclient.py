@@ -1,7 +1,6 @@
 from __future__ import print_function
 from __future__ import unicode_literals
 
-
 import logging
 import socket
 import ssl
@@ -10,10 +9,10 @@ import threading
 from collections import defaultdict, deque
 
 import websocket
+from six import text_type
 
 from . import bencode
 from . import packets
-from ..compat import text_type
 from .dispatcher import Dispatcher, expose
 from .packets import M2MPacket as Packet
 from .packets import PacketType
