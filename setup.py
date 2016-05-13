@@ -12,9 +12,7 @@ classifiers = [
 with open('m2mclient/_version.py') as f:
     exec(f.read())
 
-with open('README.md') as f:
-    long_desc = f.read()
-
+long_desc = "Official Dataplicity M2M Client"
 setup(
     name='m2mclient',
     version=VERSION,
@@ -25,6 +23,8 @@ setup(
     url='https://www.dataplicity.com',
     platforms=['any'],
     packages=find_packages(),
+    include_package_data=True,
+    exclude_package_data={'': ['_*', 'docs/*']},
     classifiers=classifiers,
 
     install_requires=[
