@@ -7,38 +7,18 @@ Encode / Decode Bencode (http://en.wikipedia.org/wiki/Bencode)
 """
 
 import io
-import sys
 
-from six import PY3, integer_types, text_type
+from six import (PY3,
+                 integer_types,
+                 text_type)
 
 
-class EncodingError(ValueError):
+class EncodeError(ValueError):
     """Failed to encode value in to bencode."""
 
 
-class DecoderError(Exception):
-    """Exception occurred with the data being decoded."""
-    (
-        PRECEDING_ZERO_IN_SIZE,
-        MAX_SIZE_REACHED,
-        ILLEGAL_DIGIT_IN_SIZE,
-        ILLEGAL_DIGIT
-    ) = range(4)
-
-    error_text = {
-        PRECEDING_ZERO_IN_SIZE: "PRECEDING_ZERO_IN_SIZE",
-        MAX_SIZE_REACHED: "MAX_SIZE_REACHED",
-        ILLEGAL_DIGIT_IN_SIZE: "ILLEGAL_DIGIT_IN_SIZE",
-        ILLEGAL_DIGIT: "ILLEGAL_DIGIT"
-    }
-
-    def __init__(self, code, text):
-        self.code = code
-        self.text = text
-        super(DecoderError, self).__init__()
-
-    def __str__(self):
-        return "{} (#{}), {}".format(DecoderError.error_text[self.code], self.code, self.text)
+class DecodeError(ValueError):
+    """Error raised when decoding invalid bencode."""
 
 
 def encode(obj):
@@ -47,22 +27,28 @@ def encode(obj):
     append = binary.append
 
     if PY3:
-        def ascii(n):
+        def int2ascii(n):
             """Encode an integer as decimal in to bytes."""
             return str(n).encode('ascii')
     else:
-        def ascii(n):
+        def int2ascii(n):
             """Encode an integer as decimal in to bytes."""
             return bytes(n)
 
     def add_encode(obj):
         if isinstance(obj, bytes):
-            append(b'%s:%s' % (ascii(len(obj)), obj) )
+            append(int2ascii(len(obj)))
+            append(b':')
+            append(obj)
         elif isinstance(obj, text_type):
             obj = obj.encode('utf-8')
-            append(b'%s:%s' % (ascii(len(obj)), obj))
+            append(int2ascii(len(obj)))
+            append(b':')
+            append(obj)
         elif isinstance(obj, integer_types):
-            append(b'i%se' % ascii(obj) )
+            append(b'i')
+            append(int2ascii(obj))
+            append(b'e')
         elif isinstance(obj, (list, tuple)):
             append(b"l")
             for item in obj:
@@ -73,12 +59,14 @@ def encode(obj):
             keys = sorted(obj.keys())
             for k in keys:
                 if not isinstance(k, bytes):
-                    raise EncodingError("dict keys must be bytes")
+                    raise EncodeError("dict keys must be bytes")
                 add_encode(k)
                 add_encode(obj[k])
             append(b'e')
         else:
-            raise EncodingError('value {!r} can not be encoded in Bencode'.format(obj))
+            raise EncodeError(
+                'value {!r} can not be encoded in Bencode'.format(obj)
+            )
 
     add_encode(obj)
     return b''.join(binary)
@@ -91,8 +79,11 @@ def decode(data):
 
 
 def _decode(read):
-    """Decode bencode, `read` should be a callable that returns number of bytes."""
-    # TODO: Some input validation
+    """Decode bencode.
+
+    The `read` parameter should be a callable that returns number of
+    bytes.
+    """
     obj_type = read(1)
     if obj_type == b'e':
         return None
@@ -102,7 +93,7 @@ def _decode(read):
             c = read(1)
             if not c.isdigit():
                 if c != b'e':
-                    raise DecoderError(DecoderError.ILLEGAL_DIGIT_IN_SIZE)
+                    raise DecodeError('illegal digit in size')
                 break
             number_bytes += c
         number = int(number_bytes)
@@ -135,154 +126,47 @@ def _decode(read):
         return read(size)
 
 
-class StringDecoder(object):
-    """
-    A bencode stream decoder.
-
-    Turns a bencode string stream in to a number of discreet strings.
-
-    """
-
-    def __init__(self, max_size=None):
-        """
-        A benstring-stream decoder object.
-
-        max_size -- The maximum size of a benstring encoded string, after which
-        a DecoderError will be throw. A value of None (the default) indicates
-        that there should be no maximum string size.
-
-        """
-        self.max_size = max_size
-
-        self.data_pos = 0
-        self.string_start = 0
-        self.size_string = b""
-        self.data_size = None
-        self.remaining_bytes = 0
-        self.data_out = io.BytesIO()
-
-    def __str__(self):
-        if self.data_size is None:
-            count = len(self.size_string)
-        else:
-            count = self.data_out.tell()
-        return "<benstring decoder, {} bytes in buffer>".format(count)
-
-    def peek_buffer(self):
-        """Return any bytes not used by decoder."""
-        return self.data_out.getvalue()
-
-    def reset(self):
-        """Reset decoder to initial state, and discards any cached stream data."""
-        self.data_pos = 0
-        self.string_start = 0
-        self.size_string = b""
-        self.data_size = None
-        self.remaining_bytes = 0
-
-        self.data_out.truncate(0)
-        self.data_out.seek(0)
-
-    def feed(self, data):
-        """
-        A generator that yields 0 or more strings from the given data.
-
-        data -- A string containing complete or partial benstring data.
-
-        """
-        if not isinstance(data, bytes):
-            raise ValueError("data should be of type 'bytes'")
-
-        self.data_pos = 0
-        self.string_start = 0
-
-        while self.data_pos < len(data):
-            data_pos = self.data_pos
-            if self.data_size is None:
-                c = data[data_pos: data_pos + 1]
-                self.data_pos += 1
-
-                if not len(self.size_string):
-                    self.string_start = self.data_pos - 1
-
-                if c in b"0123456789":
-                    if self.size_string == b'0':
-                        raise DecoderError(DecoderError.PRECEDING_ZERO_IN_SIZE,
-                                           "Preceding zeros in size field illegal")
-                    self.size_string += c
-                    if self.max_size is not None and int(self.size_string) > self.max_size:
-                        raise DecoderError(DecoderError.MAX_SIZE_REACHED,
-                                           "Maximum size of benstring exceeded")
-
-                elif c == b":":
-                    if not len(self.size_string):
-                        raise DecoderError(DecoderError.ILLEGAL_DIGIT_IN_SIZE,
-                                           "Illegal digit ({!r}) in size field".format(c))
-                    self.data_size = int(self.size_string)
-                    self.remaining_bytes = self.data_size
-                else:
-                    raise DecoderError(DecoderError.ILLEGAL_DIGIT_IN_SIZE,
-                                       "Illegal digit ({!r}) in size field".format(c))
-
-            elif self.data_size is not None:
-                get_bytes = min(self.remaining_bytes, len(data) - self.data_pos)
-                chunk = data[self.data_pos:self.data_pos + get_bytes]
-
-                whole_string = len(chunk) == self.data_size
-
-                if not whole_string:
-                    self.data_out.write(chunk)
-
-                self.data_pos += get_bytes
-                self.remaining_bytes -= get_bytes
-
-                if self.remaining_bytes == 0:
-
-                    if whole_string:
-                        yield_data = chunk
-                    else:
-                        yield_data = self.data_out.getvalue()
-                        self.data_out.truncate(0)
-                        self.data_out.seek(0)
-
-                    self.data_size = None
-                    self.size_string = b""
-                    self.remaining_bytes = 0
-                    yield yield_data
-
-
 if __name__ == '__main__':
 
     import unittest
 
     class Testbenstring(unittest.TestCase):
 
-        def setUp(self):
-            self.test_data = b"benstring module by Will McGugan"
-            self.encoded_data = b"9:benstring6:module2:by4:Will7:McGugan"
+        TESTS = [
+            (
+                b"benstring module by Will McGugan".split(b' '),
+                b"l9:benstring6:module2:by4:Will7:McGugane"
+            ),
+            (
+                b'',
+                b'0:'
+            ),
+            (
+                5,
+                b'i5e'
+            ),
+            (
+                b'bytes',
+                b'5:bytes'
+            ),
+            (
+                "unicode",
+                b"7:unicode"
+            ),
+            (
+                {b'foo': b'bar'},
+                b'd3:foo3:bare'
+            ),
+        ]
 
         def test_decoder(self):
-            encoded_data = self.encoded_data
-
-            for step in range(1, len(encoded_data)):
-                i = 0
-                chunks = []
-                while i < len(encoded_data):
-                    chunks.append(encoded_data[i:i + step])
-                    i += step
-
-                decoder = StringDecoder()
-
-                decoded_data = []
-                for chunk in chunks:
-                    for s in decoder.feed(chunk):
-                        decoded_data.append(s)
-
-                self.assertEqual(decoded_data, self.test_data.split())
+            for plain, encoded in self.TESTS:
+                self.assertEqual(encode(plain), encoded)
 
         def test_encoder(self):
-
-            self.assertEqual(encode('helloworld'), b'10:helloworld')
-            self.assertEqual(encode(5), b'i5e')
+            for plain, encoded in self.TESTS:
+                if isinstance(plain, text_type):
+                    plain = plain.encode('utf-8')
+                self.assertEqual(decode(encoded), plain)
 
     unittest.main()

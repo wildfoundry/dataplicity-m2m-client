@@ -81,22 +81,29 @@ class PacketType(IntEnum):
     # Send a route_control packet
     request_send_control = 22
 
+    # A response from a command
     response = 100
 
+    # Command to add a route
     command_add_route = 101
 
+    # Command to send an instruction
     command_send_instruction = 102
 
+    # Command to write a log
     command_log = 103
 
+    # Command to broadcast a log to all clients
     command_broadcast_log = 104
 
     #command_forward = 105
 
+    # Command to associate a name with a m2m connection
     command_set_name = 106
 
     command_check_nodes = 107
 
+    # Command to translate names to identities in bulk
     command_get_identities = 108
 
     command_set_auth = 109
@@ -107,10 +114,12 @@ class PacketType(IntEnum):
     # Get Meta info
     command_get_meta = 111
 
+    # Tell peer to add a route
     peer_add_route = 200
 
     peer_forward = 201
 
+    # Notify peer about a disconnect
     peer_notify_disconnect = 202
 
     # Tell peers about a named connection
@@ -120,7 +129,7 @@ class PacketType(IntEnum):
 class M2MPacket(PacketBase):
     """Base class, not a real packet."""
 
-    type = -1
+    type = -1  # Indicates that this is not a real packet
 
     registry = {}
 
