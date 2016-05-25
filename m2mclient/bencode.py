@@ -58,8 +58,8 @@ def encode(obj):
             append(b'd')
             keys = sorted(obj.keys())
             for k in keys:
-                if not isinstance(k, bytes):
-                    raise EncodeError("dict keys must be bytes")
+                #if not isinstance(k, bytes):
+                #    raise EncodeError("dict keys must be bytes")
                 add_encode(k)
                 add_encode(obj[k])
             append(b'e')
@@ -123,7 +123,7 @@ def _decode(read):
                 break
             size_bytes += c
         size = int(size_bytes)
-        return read(size)
+        return read(size).decode('utf-8')
 
 
 if __name__ == '__main__':
