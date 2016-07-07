@@ -385,6 +385,7 @@ class WSClient(ThreadedDispatcher):
         """Server is telling us about our identity."""
         if not self.is_closed:
             self.identity = identity
+            self.ready_event.set()
             self.log.debug('setting identity to %s', self.identity)
 
     @expose(PacketType.ping)
