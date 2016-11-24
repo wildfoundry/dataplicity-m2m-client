@@ -339,7 +339,7 @@ class WSClient(ThreadedDispatcher):
     def on_error(self, app, error):
         """Called on WS error."""
         if error:
-            self.log.error("websocket error %r", error)
+            self.log.warning("websocket error %r", error)
         self._closed = True
         self.identity = None
         self.close_event.set()
