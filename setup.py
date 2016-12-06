@@ -26,10 +26,9 @@ setup(
     include_package_data=True,
     exclude_package_data={'': ['_*', 'docs/*']},
     classifiers=classifiers,
-
     install_requires=[
-        'websocket-client',
         'enum34',
-        'six'
+        'six',
+        'websocket-client==0.37.0'  # opcode nameerror bug in 0.39.0
     ]
 )
