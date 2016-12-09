@@ -1,101 +1,86 @@
-from __future__ import unicode_literals
-from __future__ import print_function
+"""
+Dispatches incoming packets.
 
 """
-Dispatches incoming packets
-
-"""
-
-
-from six import text_type
 
 import logging
-import inspect
 
 
 class PacketFormatError(Exception):
-    pass
-
-
-class UnknownMethodError(Exception):
-    """Unknown packet type"""
+    """The packet didn't conform to spec."""
 
 
 def expose(packet_type):
-    def deco(f):
-        f._dispatcher_exposed = True
-        f._dispatcher_packet_type = packet_type
-        return f
+    """Mark a method as a handler for a given packet type."""
+    def deco(func):
+        """Mark a method as a packet handler."""
+        func._dispatcher_exposed = True
+        func._dispatcher_packet_type = packet_type
+        return func
     return deco
 
 
-class Dispatcher(object):
+class Dispatcher:
     """
     Base class to dispatch to handlers for a packet.
 
-    May also be used to dispatch to methods of another object, rather than a base class.
+    May also be used to dispatch to methods of another object, rather
+    than a base class.
 
     """
 
-    def __init__(self, packet_cls=None, handler_instance=None, log=None):
+    def __init__(self, packet_cls, instance=None, log=None):
         super(Dispatcher, self).__init__()
-        self._handler_instance = handler_instance or self
-
-        if log is None:
-            self.log = logging.getLogger('dispatcher')
-        else:
-            self.log = log
-
+        self.log = log or logging.getLogger('dispatcher')
         self._packet_cls = packet_cls
         self._packet_handlers = {}
-        self._init_dispatcher()
+        self._init_dispatcher(instance or self)
 
-    def set_packet_class(self, packet_cls):
-        self._packet_cls = packet_cls
+    def _init_dispatcher(self, handler_instance):
+        """
+        Finds the methods decorated with @expose, and creates a dict
+        that maps packet type on to the method.
 
-    def _init_dispatcher(self):
-        for method_name in dir(self._handler_instance):
+        """
+        for method_name in dir(handler_instance):
             if method_name.startswith('_'):
                 continue
-            method = getattr(self._handler_instance, method_name)
+            method = getattr(handler_instance, method_name, None)
             if getattr(method, '_dispatcher_exposed', False):
                 packet_type = method._dispatcher_packet_type
                 self._packet_handlers[packet_type] = method
 
+    def close(self):
+        """Close the dispatcher (will be unusable after this call).."""
+        self._packet_handlers.clear()
+
     def dispatch(self, packet_type, packet_body):
-        """Dispatch a packet to appropriate handler"""
+        """Dispatch a packet to appropriate handler."""
         if not isinstance(packet_type, int):
             raise PacketFormatError('packet type should be an int')
-        assert self._packet_cls is not None, "packet class must be set with set_packet_class"
-
         packet = self._packet_cls.create(packet_type, *packet_body)
         return self.dispatch_packet(packet)
 
     def dispatch_packet(self, packet):
-        if not getattr(packet, 'no_log', False):
-            self.log.debug('received %r', packet)
-        packet_type = packet.type
-        method = self._packet_handlers.get(packet_type, None)
+        """Dispatches an incoming packet to its handler."""
+        method = self._packet_handlers.get(int(packet.type), None)
 
         if method is None:
-            self.on_missing_handler(packet)
-            return None
+            return self.on_missing_handler(packet)
 
-        arg_spec = inspect.getargspec(method)
-        args, kwargs = packet.get_method_args(len(arg_spec[0]))
-
+        kwargs = packet.kwargs
         try:
-            inspect.getcallargs(method, packet_type, *args, **kwargs)
-        except TypeError as e:
-            raise PacketFormatError(text_type(e))
-
+            for name, param_callable in method.__annotations__.items():
+                kwargs[name] = param_callable(kwargs[name])
+        except Exception as error:
+            self.log.warning('packet failed to validate')
+            raise PacketFormatError(str(error))
         try:
-            ret = method(packet_type, *args, **kwargs)
+            return method(**kwargs)
         except Exception:
+            self.log.exception('error calling handler')
             raise
-        else:
-            return ret
 
     def on_missing_handler(self, packet):
-        """Called when no handler is available to handle `packet`"""
-        self.log.error('missing handler for %r', packet)
+        """Called when no handler is available to handle `packet`."""
+        self.log.warning('no handler for %r', packet.type)

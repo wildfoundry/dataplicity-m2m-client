@@ -1,15 +1,24 @@
-from __future__ import unicode_literals
-from __future__ import print_function
+"""
+Manages packet structures.
+
+Packets are encoded as a bencode list as follows:
+
+[<int type>, <payload>]
+
+Where type is an integer that identifies the type of the packet, and
+payload is anything that may be encoded in bencode. The payload will
+be extracted and used as parameters to the handler method.
 
 """
-Packet management
+import bencoder
+from bencoder import BTFailure
+from bencoder import bdecode
+from bencoder import bencode
 
-"""
+from .lrucache import LRUCache
 
-from . import bencode
-
-from six import integer_types, text_type, with_metaclass
-
+# Monkey patch bencoder to use a plain old dict
+bencoder.OrderedDict = dict
 
 class PacketError(Exception):
     """A packet format error."""
@@ -28,40 +37,67 @@ class PacketMeta(type):
 
     def __new__(mcs, name, bases, attrs):
         packet_cls = super(PacketMeta, mcs).__new__(mcs, name, bases, attrs)
-        if bases[0] is not object:
-            if packet_cls.type >= 0:
-                assert packet_cls.type not in packet_cls.registry, "packet type {!r} has already been registered".format(packet_cls, type)
-                packet_cls.registry[packet_cls.type] = packet_cls
+        if bases and packet_cls.type >= 0:
+            is_registered = packet_cls.type in packet_cls.registry
+            assert not is_registered,\
+                "packet type {!r} has been registered".format(packet_cls)
+            packet_cls.registry[packet_cls.type] = packet_cls
         return packet_cls
 
 
-class PacketBaseType(object):
+class PacketBase(metaclass=PacketMeta):
     """Metaclass to register packet type."""
 
     registry = {}
+    attributes = []
 
     # Packet type
     type = -1  # Indicates it is a base packet class
 
     # Named attributes, if using default init_data
-    attributes = []
-
     def __init__(self, *args, **kwargs):
-        self.init_params(args, kwargs)
-        self.validate()
+        params = {
+            name: arg
+            for arg, (name, _type) in zip(args, self.attributes)
+        }
+        params.update(kwargs)
+
+        for name, _type in self.attributes:
+            if name not in params:
+                raise PacketFormatError(
+                    "missing attribute '{}', in {!r}".format(name, self)
+                )
+            value = params[name]
+            if isinstance(value, str):
+                params[name] = value = value.encode('utf-8', 'xmlcharreplace')
+            if not isinstance(value, _type):
+                _fmt = "{} parameter '{}' should be a {!r} (not {!r})"
+                raise PacketFormatError(
+                    _fmt.format(self, name, _type, value)
+                )
+        self.__dict__.update(params)
 
     def __repr__(self):
         data = {}
-        for attrib_name, attrib_type in self.attributes:
+        for attrib_name, _ in self.attributes:
             try:
                 data[attrib_name] = getattr(self, attrib_name)
             except AttributeError:
                 continue
-
-        params = ', '.join("{}={!r}".format(k, v if k != 'password' else '********') for k, v in data.items())
+        params = ', '.join(
+            "{}={!r}".format(k, v if k != 'password' else '********')
+            for k, v in data.items()
+        )
         return "{}({})".format(self.__class__.__name__, params)
 
-    def process_packet_type(self, packet_type):
+    @classmethod
+    def process_packet_type(cls, packet_type):
+        """
+        Convert packet type value in to an integer.
+
+        Allows derived classes to use packet types in other formats.
+
+        """
         return packet_type
 
     @classmethod
@@ -73,88 +109,46 @@ class PacketBaseType(object):
         return packet_cls(*args, **kwargs)
 
     @classmethod
-    def from_bytes(cls, packet_bytes):
+    def from_bytes(cls, packet_bytes, _cache=LRUCache(10000)):
         """Return a packet from a bytes string."""
-        try:
-            packet_data = bencode.decode(packet_bytes)
-        except bencode.DecodeError as e:
-            raise PacketFormatError('packet is badly formated ({!r})'.format(e))
-
-        if not isinstance(packet_data, list):
+        if not packet_bytes.startswith(b'l'):
             raise PacketFormatError('packet must be a list')
-        packet_type = packet_data[0]
-        if not isinstance(packet_type, integer_types):
+        try:
+            packet_data = _cache[packet_bytes]
+        except KeyError:
+            try:
+                packet_data = bdecode(packet_bytes)
+            except BTFailure as error:
+                raise PacketFormatError(
+                    'packet is badly formatted ({})'.format(error)
+                )
+            if len(packet_bytes) < 100:
+                _cache[packet_bytes] = packet_data
+
+        packet_type, *packet_body = packet_data
+        if not isinstance(packet_type, int):
             raise PacketFormatError('first value must be an integer')
-        packet_body = packet_data[1:]
         try:
             packet_cls = cls.registry[packet_type]
-        except:
-            raise UnknownPacketError("unknown packet type '{}'".format(packet_type))
-        return packet_cls.from_body(packet_body)
-
-    @classmethod
-    def from_body(cls, packet_body):
-        """Return a packet object from a packet body."""
-        params = {}
-        for (attrib_name, attrib_type), value in zip(cls.attributes, packet_body):
-            params[attrib_name] = value
-        return cls(**params)
+        except KeyError:
+            raise UnknownPacketError(
+                "unknown packet ({!r})".format(packet_type)
+            )
+        return packet_cls(*packet_body)
 
     @property
     def kwargs(self):
-        return {attrib_name: getattr(self, attrib_name)
-                for attrib_name, attrib_type in self.attributes}
-
-    def get_method_args(self, arg_count):
-        args = []
-        kwargs = self.kwargs.copy()
-        for attrib_name, _ in self.attributes[:arg_count]:
-            args.append(kwargs.pop(attrib_name))
-        return args, kwargs
-
-    def init_params(self, args, kwargs):
-        """Initialize from parameters."""
-        # Default implementation copies named attributes
-
-        params = {}
-
-        for arg, (attribute_name, attrib_type) in zip(args, self.attributes):
-            if isinstance(arg, text_type):
-                arg = arg.encode('utf-8')
-            params[attribute_name] = arg
-        for k, v in kwargs.items():
-            if isinstance(v, text_type):
-                v = v.encode('utf-8')
-            params[k] = v
-
-        for attrib_name, attrib_type in self.attributes:
-            if attrib_name not in params:
-                raise PacketFormatError("missing attribute '{}', in {!r}".format(attrib_name, self))
-            value = params[attrib_name]
-            if attrib_type is not None and not isinstance(value, attrib_type):
-                raise PacketFormatError("parameter '{}' should be a {!r}, in {!r} (not {!r})".format(attrib_name, attrib_type, self, type(value)))
-            setattr(self, attrib_name, params[attrib_name])
-
-    def validate(self):
-        """Check packet data for errors."""
-        pass
+        """Keyword args to be used to invoke handler."""
+        return {
+            name: getattr(self, name)
+            for name, _ in self.attributes
+        }
 
     @property
     def as_bytes(self):
         """Encode the packet as bytes."""
-        return self.encode_binary()
-
-    def encode_binary(self):
-        """Encode the packet in to a byte string."""
-        return bencode.encode(self.encode())
-
-    def encode(self):
-        """Encode the packet (including type header)."""
-        data = ([int(self.type)] +
-                [getattr(self, attrib_name) for attrib_name, attrib_type in self.attributes])
-        return data
-
-
-class PacketBase(with_metaclass(PacketMeta, PacketBaseType)):
-    """Base class for packets."""
-
+        packet_bytes = bencode(
+            [int(self.type)] +
+            [getattr(self, name) for name, _type in self.attributes]
+        )
+        return packet_bytes
