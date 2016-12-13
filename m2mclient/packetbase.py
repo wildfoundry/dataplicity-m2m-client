@@ -109,7 +109,7 @@ class PacketBase(metaclass=PacketMeta):
         return packet_cls(*args, **kwargs)
 
     @classmethod
-    def from_bytes(cls, packet_bytes, _cache=LRUCache(10000)):
+    def from_bytes(cls, packet_bytes, _cache=LRUCache(1000)):
         """Return a packet from a bytes string."""
         if not packet_bytes.startswith(b'l'):
             raise PacketFormatError('packet must be a list')

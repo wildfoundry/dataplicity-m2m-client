@@ -27,7 +27,8 @@ setup(
     exclude_package_data={'': ['_*', 'docs/*']},
     classifiers=classifiers,
     install_requires=[
-        'bencoder',
-        'ws4py'
+        'bencoder.pyx==1.1.3',
+        'ws4py==0.3.5',
+	    'wsaccel==0.6.2'
     ]
 )
