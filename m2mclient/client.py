@@ -124,7 +124,7 @@ class CommandResult(object):
                 'no result available (connection closed before it was received)'
             )
         status = self._result.get(b'status', b'fail').decode()
-        if status != 'ok'
+        if status != 'ok':
             msg = self._result.get(b'msg', b'').decode()
             raise CommandFail("{}; {}".format(status, msg))
         return self._result
