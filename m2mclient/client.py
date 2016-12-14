@@ -135,6 +135,7 @@ class M2MClient:
         self.username = username
         self.password = password
         self.connect_wait = connect_wait
+        self.identitiy = identitiy
         self.dispatcher = Dispatcher(M2MPacket, instance=self)
         self.command_id = 0
         self.command_events = {}
@@ -203,7 +204,7 @@ class M2MClient:
             port1=-1,
             node2=node2,
             port2=-1,
-            requester=None,
+            requester=self.identity,
             forwarded=0
         )
         return result
@@ -257,7 +258,7 @@ class M2MClient:
     @expose(PacketType.set_identity)
     def handle_set_identitiy(self, identity):
         """The server is informing us of our identity on the network."""
-        # We don't need it (yet)
+        self.identity = identity
 
     @expose(PacketType.welcome)
     def handle_welcome(self):
