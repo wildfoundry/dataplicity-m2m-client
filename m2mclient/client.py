@@ -135,7 +135,7 @@ class M2MClient:
         self.username = username
         self.password = password
         self.connect_wait = connect_wait
-        self.identitiy = identitiy
+        self.identitiy = None
         self.dispatcher = Dispatcher(M2MPacket, instance=self)
         self.command_id = 0
         self.command_events = {}
