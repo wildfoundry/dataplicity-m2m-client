@@ -105,6 +105,10 @@ class CommandResult(object):
         self._result = result
         self._event.set()
 
+    def set_fail(self, result):
+        self._result = result
+        self._event.set()
+
     def get(self, timeout=5):
         """Get the result or throw a CommandTimeout error.
 
