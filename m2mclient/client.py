@@ -204,7 +204,7 @@ class M2MClient:
             port1=-1,
             node2=node2,
             port2=-1,
-            requester=self.identity,
+            requester=self.identity or b'',
             forwarded=0
         )
         return result
@@ -229,7 +229,7 @@ class M2MClient:
     def set_meta(self, device_id, key, value):
         """Set meta information associated with a device."""
         result = self.command("command_set_meta",
-                              requester=self.identity,
+                              requester=self.identity or b'',
                               node=device_id,
                               key=key,
                               value=value)
@@ -238,7 +238,7 @@ class M2MClient:
     def get_meta(self, device_id):
         """Get a meta dictionary associated with the device."""
         result = self.command("command_get_meta",
-                              requester=self.identity,
+                              requester=self.identity or b'',
                               node=device_id)
         return result
 
