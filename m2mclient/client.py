@@ -135,7 +135,7 @@ class M2MClient:
         self.username = username
         self.password = password
         self.connect_wait = connect_wait
-        self.identitiy = None
+        self.identity = None
         self.dispatcher = Dispatcher(M2MPacket, instance=self)
         self.command_id = 0
         self.command_events = {}
@@ -229,7 +229,7 @@ class M2MClient:
     def set_meta(self, device_id, key, value):
         """Set meta information associated with a device."""
         result = self.command("command_set_meta",
-                              requester=None,
+                              requester=self.identity,
                               node=device_id,
                               key=key,
                               value=value)
@@ -238,7 +238,7 @@ class M2MClient:
     def get_meta(self, device_id):
         """Get a meta dictionary associated with the device."""
         result = self.command("command_get_meta",
-                              requester=None,
+                              requester=self.identity,
                               node=device_id)
         return result
 
