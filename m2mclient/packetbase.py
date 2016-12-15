@@ -10,15 +10,8 @@ payload is anything that may be encoded in bencode. The payload will
 be extracted and used as parameters to the handler method.
 
 """
-import bencoder
-from bencoder import BTFailure
-from bencoder import bdecode
-from bencoder import bencode
 
-from .lrucache import LRUCache
-
-# Monkey patch bencoder to use a plain old dict
-bencoder.OrderedDict = dict
+from .import bencode
 
 class PacketError(Exception):
     """A packet format error."""
@@ -109,21 +102,17 @@ class PacketBase(metaclass=PacketMeta):
         return packet_cls(*args, **kwargs)
 
     @classmethod
-    def from_bytes(cls, packet_bytes, _cache=LRUCache(1000)):
+    def from_bytes(cls, packet_bytes):
         """Return a packet from a bytes string."""
         if not packet_bytes.startswith(b'l'):
             raise PacketFormatError('packet must be a list')
+
         try:
-            packet_data = _cache[packet_bytes]
-        except KeyError:
-            try:
-                packet_data = bdecode(packet_bytes)
-            except BTFailure as error:
-                raise PacketFormatError(
-                    'packet is badly formatted ({})'.format(error)
-                )
-            if len(packet_bytes) < 100:
-                _cache[packet_bytes] = packet_data
+            packet_data = bencode.decode(packet_bytes)
+        except bencode.DecodeError as error:
+            raise PacketFormatError(
+                'packet is badly formatted ({})'.format(error)
+            )
 
         packet_type, *packet_body = packet_data
         if not isinstance(packet_type, int):
@@ -147,7 +136,7 @@ class PacketBase(metaclass=PacketMeta):
     @property
     def as_bytes(self):
         """Encode the packet as bytes."""
-        packet_bytes = bencode(
+        packet_bytes = bencode.encode(
             [int(self.type)] +
             [getattr(self, name) for name, _type in self.attributes]
         )
