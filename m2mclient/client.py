@@ -10,28 +10,11 @@ from .dispatcher import PacketFormatError
 from .dispatcher import expose
 from .packets import M2MPacket
 from .packets import PacketType
+from .import errors
 
 
 log = logging.getLogger('m2m')
 
-
-class ConnectionError(Exception):
-    """Unable to connect to M2M server."""
-
-
-class CommandError(Exception):
-    """M2M command error base exception."""
-
-
-class M2MAuthFailed(CommandError):
-    """Bad username or password."""
-
-
-class CommandTimeout(CommandError):
-    """The M2M server didn't respond in a timely manner."""
-
-class CommandFail(CommandError):
-    """The M2M servers responded with an explicit error to a command."""
 
 
 class WebSocket(WebSocketBaseClient):
@@ -112,25 +95,28 @@ class CommandResult(object):
     def get(self, timeout=5):
         """Get the result or throw a CommandTimeout error.
 
-        In normal operation this should return in less than a second. Timeouts could occur if
-        the m2m server is down, overloaded, or otherwise fubar.
+        In normal operation this should return in less than a second.
+        Timeouts could occur if the m2m server is down, overloaded, or
+        otherwise fubar.
         """
-        # The default timeout of 5 seconds is probably unrealistically high
-        # Even under load the server response time should be measured in milliseconds
+        # The default timeout of 5 seconds is probably unrealistically
+        # high Even under load the server response time should be
+        # measured in milliseconds
         if not self._event.wait(timeout):
-            raise CommandTimeout('command timed out')
+            raise errors.CommandTimeout('command timed out')
         if self._result is None:
-            raise CommandError(
+            raise errors.CommandError(
                 'no result available (connection closed before it was received)'
             )
-        status = self._result.get(b'status', b'fail').decode()
+        status = self._result.get('status', 'fail')
         if status != 'ok':
-            msg = self._result.get(b'msg', b'').decode()
-            raise CommandFail("{}; {}".format(status, msg))
+            msg = self._result.get('msg', '').decode()
+            raise errors.CommandFail("{}; {}".format(status, msg))
         return self._result
 
 
 class M2MClient:
+    """A client for the M2M protocol."""
 
     def __init__(self, url, username, password, connect_wait=3):
         self.url = url
@@ -152,7 +138,7 @@ class M2MClient:
         self.ws.start()
         self.ws.ready_event.wait(self.connect_wait)
         if not self.ws.running:
-            raise ConnectionError(
+            raise errors.ConnectionError(
                 str(self.ws.exc)
                 if self.ws.exc
                 else "unable to connect"
@@ -161,13 +147,20 @@ class M2MClient:
 
     def __exit__(self, exc_type, exc_val, exc_tb):
         try:
+            # Ask politely to leave
             self.close()
+            # Wait until we're done
             self.ws.join(1)
-            self.ws.close()
+            if self.ws.is_alive():
+                # Force a close if we didn't complete
+                self.ws.close()
         finally:
             self.ws = None
 
     def close(self):
+        """A graceful close."""
+        # If everything is working, the server will kick us in a few
+        # milliseconds.
         self.send('request_leave')
 
     def send(self, packet_type, *args, **kwargs):
@@ -180,12 +173,18 @@ class M2MClient:
             log.debug(' -> %r (server gone)', packet)
 
     def command(self, command_packet, *args, **kwargs):
+        """
+        Send a command to the server.
+
+        Return a CommandResult object that may be waited on.
+        """
         command_id = self.command_id = self.command_id + 1
         result = self.command_events[command_id] = CommandResult(command_packet)
         self.send(command_packet, command_id, *args, **kwargs)
         return result
 
     def on_startup(self):
+        """Called on startup."""
         self.send('request_join')
         self.send(
             'request_login',
@@ -273,7 +272,7 @@ class M2MClient:
     @expose(PacketType.notify_login_fail)
     def handle_notify_login_fail(self, message: bytes.decode):
         """Username or password was wrong."""
-        raise M2MAuthFailed(message)
+        raise errors.M2MAuthFailed(message)
 
     @expose(PacketType.log)
     def handle_log(self, text: bytes.decode):

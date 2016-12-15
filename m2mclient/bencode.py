@@ -65,7 +65,7 @@ def encode(obj):
     return b''.join(binary)
 
 
-def decode(data, _cache=LRUCache(1000)):
+def decode(data, _cache=LRUCache(1000), make_string=bytes.decode):
     """
     Decode bencode `data` which should be a bytes object.
 
@@ -97,7 +97,7 @@ def decode(data, _cache=LRUCache(1000)):
                 if not size_bytes.isdigit():
                     raise DecodeError('illegal digits in size')
                 read(1)
-                return read(int(size_bytes))
+                return make_string(read(int(size_bytes)))
             except ValueError:
                 raise DecodeError('illegal size')
         elif obj_type == b'e':
