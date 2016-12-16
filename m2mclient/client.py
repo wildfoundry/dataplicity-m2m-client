@@ -1,5 +1,5 @@
+import weakref
 import logging
-
 from threading import Event
 from threading import Thread
 
@@ -10,7 +10,7 @@ from .dispatcher import PacketFormatError
 from .dispatcher import expose
 from .packets import M2MPacket
 from .packets import PacketType
-from .import errors
+from . import errors
 
 
 log = logging.getLogger('m2m')
@@ -21,12 +21,16 @@ class WebSocket(WebSocketBaseClient):
     """Websocket thread."""
 
     def __init__(self, url, dispatcher, on_startup=None):
-        self._dispatcher = dispatcher
+        self._dispatcher = weakref.ref(dispatcher)
         self.on_startup = on_startup or (lambda: None)
         self.running = False
         self.ready_event = Event()
         self.exc = None
         super().__init__(url)
+
+    @property
+    def dispatcher(self):
+        return self._dispatcher()
 
     def start(self):
         self._thread = Thread(target=self.run_thread)
@@ -34,7 +38,9 @@ class WebSocket(WebSocketBaseClient):
         self._thread.start()
 
     def join(self, timeout=None):
+        """Attempt to join thread, return True if joined."""
         self._thread.join(timeout)
+        return not self._thread.is_alive()
 
     def run_thread(self):
         try:
@@ -53,8 +59,9 @@ class WebSocket(WebSocketBaseClient):
             self.running = False
 
     def received_message(self, msg):
-
         if not isinstance(msg.data, bytes):
+            return
+        if not self.dispatcher:
             return
         try:
             packet = M2MPacket.from_bytes(msg.data)
@@ -64,7 +71,7 @@ class WebSocket(WebSocketBaseClient):
             log.warning('bad packet (%s)', packet_error)
         else:
             log.debug(' <- %r', packet)
-            self._dispatcher.dispatch_packet(packet)
+            self.dispatcher.dispatch_packet(packet)
 
 
 
@@ -89,6 +96,8 @@ class CommandResult(object):
         self._event.set()
 
     def set_fail(self, result):
+        """Set a fail result."""
+        #
         self._result = result
         self._event.set()
 
@@ -150,8 +159,7 @@ class M2MClient:
             # Ask politely to leave
             self.close()
             # Wait until we're done
-            self.ws.join(1)
-            if self.ws.is_alive():
+            if not self.ws.join(1):
                 # Force a close if we didn't complete
                 self.ws.close()
         finally:

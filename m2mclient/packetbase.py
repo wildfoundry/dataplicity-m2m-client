@@ -114,7 +114,11 @@ class PacketBase(metaclass=PacketMeta):
                 'packet is badly formatted ({})'.format(error)
             )
 
-        packet_type, *packet_body = packet_data
+        try:
+            packet_type, *packet_body = packet_data
+        except ValueError:
+            raise PacketFormatError('Packet must contain at least one item')
+
         if not isinstance(packet_type, int):
             raise PacketFormatError('first value must be an integer')
         try:
