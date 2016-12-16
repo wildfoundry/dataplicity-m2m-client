@@ -56,7 +56,7 @@ def encode(obj):
             try:
                 for key, value in sorted(obj.items(), key=itemgetter(0)):
                     #append(b"%i:%b" % (len(key), key))
-                    append("{}:".format(len(key)).encode() + key)
+                    append("{}:{}".format(len(key), key).encode())
                     add_encode(value)
             except TypeError:
                 raise EncodeError('dict keys must be bytes')
