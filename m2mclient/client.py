@@ -121,7 +121,7 @@ class CommandResult(object):
             raise errors.CommandFail('invalid response')
         status = self._result.get('status', 'fail')
         if status != 'ok':
-            msg = self._result.get('msg', '').decode()
+            msg = self._result.get('msg', '')
             raise errors.CommandFail("{}; {}".format(status, msg))
         return self._result
 
