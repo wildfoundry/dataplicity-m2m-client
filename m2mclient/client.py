@@ -47,7 +47,7 @@ class WebSocket(WebSocketBaseClient):
             try:
                 self.connect()
             except Exception as error:
-                log.warn(error)
+                log.warning(error)
                 self.exc = error
                 self.ready_event.set()
             else:
@@ -117,6 +117,8 @@ class CommandResult(object):
             raise errors.CommandError(
                 'no result available (connection closed before it was received)'
             )
+        if not isinstance(self._result, dict):
+            raise errors.CommandFail('invalid response')
         status = self._result.get('status', 'fail')
         if status != 'ok':
             msg = self._result.get('msg', '').decode()
@@ -136,11 +138,16 @@ class M2MClient:
         self.dispatcher = Dispatcher(M2MPacket, instance=self)
         self.command_id = 0
         self.command_events = {}
+        self.ws = None
+        self.create_ws()
+
+    def create_ws(self):
         self.ws = WebSocket(
-            url,
+            self.url,
             self.dispatcher,
             on_startup=self.on_startup
         )
+        self.ws.sock.settimeout(3)
 
     def __enter__(self):
         log.debug('connecting to %s', self.url)
