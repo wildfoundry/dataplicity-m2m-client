@@ -171,6 +171,7 @@ class M2MClient:
                 self.ws.close()
         finally:
             self.ws = None
+            self.dispatcher.close()
 
     def close(self):
         """A graceful close."""
