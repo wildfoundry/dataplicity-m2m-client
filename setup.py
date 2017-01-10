@@ -28,6 +28,6 @@ setup(
     classifiers=classifiers,
     install_requires=[
         'ws4py==0.3.5',
-	    'wsaccel==0.6.2'
+        'wsaccel==0.6.2'
     ]
 )
