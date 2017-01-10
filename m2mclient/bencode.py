@@ -37,14 +37,11 @@ def encode(obj):
     def add_encode(obj):
         """Encode an object, appending bytes to `binary` list."""
         if isinstance(obj, bytes):
-            #append(b'%i:%b' % (len(obj), obj))
             append("{}:".format(len(obj)).encode() + obj)
         elif isinstance(obj, str):
             obj_bytes = obj.encode('utf-8')
-            #append(b"%i:%b" % (len(obj_bytes), obj_bytes))
             append("{}:".format(len(obj_bytes)).encode() + obj_bytes)
         elif isinstance(obj, int):
-            #append(b"i%ie" % obj)
             append("i{}e".format(obj).encode())
         elif isinstance(obj, (list, tuple)):
             append(b"l")
@@ -55,7 +52,6 @@ def encode(obj):
             append(b'd')
             try:
                 for key, value in sorted(obj.items(), key=itemgetter(0)):
-                    #append(b"%i:%b" % (len(key), key))
                     append("{}:{}".format(len(key), key).encode())
                     add_encode(value)
             except TypeError:
