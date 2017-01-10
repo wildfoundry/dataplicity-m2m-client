@@ -6,7 +6,6 @@ Somewhat optimized over original in m2md
 """
 
 import io
-import time
 
 from operator import itemgetter
 
@@ -121,21 +120,3 @@ def decode(data, _cache=LRUCache(1000), make_string=bytes.decode):
     if len(data) < 100:
         _cache[data] = obj
     return obj
-
-
-if __name__ == '__main__':
-    _data = [[1, 3, 'hello'], {b'foo': 'bar'}, b'test', 'test']
-    print(repr(_data))
-    b_data = encode(_data)
-    print(repr(b_data))
-    decoded_data = decode(b_data)
-    print(repr(decoded_data))
-
-    start = time.time()
-    repeats = 100000
-    for i in range(repeats):
-        decoded_data = decode(b_data)
-    elapsed = time.time() - start
-    print("{:,.0f}ns per loop".format(elapsed / repeats * 1000000000.0))
-
-    #decode(b'i12')
