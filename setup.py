@@ -27,8 +27,7 @@ setup(
     exclude_package_data={'': ['_*', 'docs/*']},
     classifiers=classifiers,
     install_requires=[
-        'enum34',
-        'six',
-        'websocket-client==0.37.0'  # opcode nameerror bug in 0.39.0
+        'ws4py==0.3.5',
+        'wsaccel==0.6.2'
     ]
 )

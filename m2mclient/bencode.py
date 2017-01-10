@@ -1,54 +1,47 @@
-from __future__ import print_function
-from __future__ import unicode_literals
-
 """
-Encode / Decode Bencode (http://en.wikipedia.org/wiki/Bencode)
+Bencode codec.
+
+Somewhat optimized over original in m2md
 
 """
 
 import io
 
-from six import (PY3,
-                 integer_types,
-                 text_type)
+from operator import itemgetter
+
+from .lrucache import LRUCache
 
 
-class EncodeError(ValueError):
-    """Failed to encode value in to bencode."""
+class EncodeError(Exception):
+    """An error occurred when encoding bencode."""
 
 
-class DecodeError(ValueError):
-    """Error raised when decoding invalid bencode."""
+class DecodeError(Exception):
+    """An error occurred when decoding bencode."""
 
 
 def encode(obj):
-    """Encode to Bencode, return byte."""
+    """
+    Encode data in to bencode, return bytes.
+
+    The following objects may be encoded: int, bytes, list, dicts.
+
+    Dict keys must be bytes, and unicode strings will be encoded in to
+    utf-8.
+
+    """
     binary = []
     append = binary.append
 
-    if PY3:
-        def int2ascii(n):
-            """Encode an integer as decimal in to bytes."""
-            return str(n).encode('ascii')
-    else:
-        def int2ascii(n):
-            """Encode an integer as decimal in to bytes."""
-            return bytes(n)
-
     def add_encode(obj):
+        """Encode an object, appending bytes to `binary` list."""
         if isinstance(obj, bytes):
-            append(int2ascii(len(obj)))
-            append(b':')
-            append(obj)
-        elif isinstance(obj, text_type):
-            obj = obj.encode('utf-8')
-            append(int2ascii(len(obj)))
-            append(b':')
-            append(obj)
-        elif isinstance(obj, integer_types):
-            append(b'i')
-            append(int2ascii(obj))
-            append(b'e')
+            append("{}:".format(len(obj)).encode() + obj)
+        elif isinstance(obj, str):
+            obj_bytes = obj.encode('utf-8')
+            append("{}:".format(len(obj_bytes)).encode() + obj_bytes)
+        elif isinstance(obj, int):
+            append("i{}e".format(obj).encode())
         elif isinstance(obj, (list, tuple)):
             append(b"l")
             for item in obj:
@@ -56,117 +49,74 @@ def encode(obj):
             append(b'e')
         elif isinstance(obj, dict):
             append(b'd')
-            keys = sorted(obj.keys())
-            for k in keys:
-                #if not isinstance(k, bytes):
-                #    raise EncodeError("dict keys must be bytes")
-                add_encode(k)
-                add_encode(obj[k])
+            try:
+                for key, value in sorted(obj.items(), key=itemgetter(0)):
+                    append("{}:{}".format(len(key), key).encode())
+                    add_encode(value)
+            except TypeError:
+                raise EncodeError('dict keys must be bytes')
             append(b'e')
         else:
             raise EncodeError(
                 'value {!r} can not be encoded in Bencode'.format(obj)
             )
-
     add_encode(obj)
     return b''.join(binary)
 
 
-def decode(data):
-    """Decode Bencode, return an object."""
-    assert isinstance(data, bytes), "decode takes bytes"
-    return _decode(io.BytesIO(data).read)
-
-
-def _decode(read):
-    """Decode bencode.
-
-    The `read` parameter should be a callable that returns number of
-    bytes.
+def decode(data, _cache=LRUCache(1000), make_string=bytes.decode):
     """
-    obj_type = read(1)
-    if obj_type == b'e':
-        return None
-    if obj_type == b'i':
-        number_bytes = b''
-        while 1:
-            c = read(1)
-            if not c.isdigit():
-                if c != b'e':
-                    raise DecodeError('illegal digit in size')
-                break
-            number_bytes += c
-        number = int(number_bytes)
-        return number
-    elif obj_type == b'l':
-        l = []
-        while 1:
-            i = _decode(read)
-            if i is None:
-                break
-            l.append(i)
-        return l
-    elif obj_type == b'd':
-        kv = []
-        while 1:
-            k = _decode(read)
-            if k is None:
-                break
-            v = _decode(read)
-            kv.append((k, v))
-        return dict(kv)
-    else:
-        size_bytes = obj_type
-        while 1:
-            c = read(1)
-            if c == b':':
-                break
-            size_bytes += c
-        size = int(size_bytes)
-        return read(size).decode('utf-8')
+    Decode bencode `data` which should be a bytes object.
 
+    Small packets are cached in an LRU cache
 
-if __name__ == '__main__':
+    """
+    if data in _cache:
+        return _cache[data]
 
-    import unittest
+    data_file = io.BytesIO(data)
+    read = data_file.read
 
-    class Testbenstring(unittest.TestCase):
+    def peek(count):
+        """Read count bytes, and put the file pointer back."""
+        pos = data_file.tell()
+        try:
+            return read(count)
+        finally:
+            data_file.seek(pos)
+    # A byte iterator.
+    iter_bytes = iter(lambda: read(1), b'')
 
-        TESTS = [
-            (
-                b"benstring module by Will McGugan".split(b' '),
-                b"l9:benstring6:module2:by4:Will7:McGugane"
-            ),
-            (
-                b'',
-                b'0:'
-            ),
-            (
-                5,
-                b'i5e'
-            ),
-            (
-                b'bytes',
-                b'5:bytes'
-            ),
-            (
-                "unicode",
-                b"7:unicode"
-            ),
-            (
-                {b'foo': b'bar'},
-                b'd3:foo3:bare'
-            ),
-        ]
+    def _decode():
+        obj_type = next(iter_bytes)
+        if obj_type.isdigit():
+            try:
+                # Max 999,999 bytes in a bencode string
+                size_bytes = obj_type + read(peek(6).index(b':'))
+                if not size_bytes.isdigit():
+                    raise DecodeError('illegal digits in size')
+                read(1)
+                return make_string(read(int(size_bytes)))
+            except ValueError:
+                raise DecodeError('illegal size')
+        elif obj_type == b'e':
+            return None
+        elif obj_type == b'i':
+            try:
+                # Arbitrary integer (including negative)
+                # max size -10**15-1 to 10**16-1
+                return int(read(peek(16).index(b'e')))
+            except ValueError:
+                raise DecodeError('invalid integer')
+            finally:
+                read(1)
+        elif obj_type == b'l':
+            return list(iter(_decode, None))
+        elif obj_type == b'd':
+            return {k: _decode() for k in iter(_decode, None)}
+        raise DecodeError('invalid digit')
 
-        def test_decoder(self):
-            for plain, encoded in self.TESTS:
-                self.assertEqual(encode(plain), encoded)
-
-        def test_encoder(self):
-            for plain, encoded in self.TESTS:
-                if isinstance(plain, text_type):
-                    plain = plain.encode('utf-8')
-                self.assertEqual(decode(encoded), plain)
-
-    unittest.main()
+    obj = _decode()
+    if len(data) < 100:
+        _cache[data] = obj
+    return obj
