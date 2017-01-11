@@ -18,3 +18,7 @@ class CommandTimeout(CommandError):
 
 class CommandFail(CommandError):
     """The M2M servers responded with an explicit error to a command."""
+
+
+class NoIdentity(CommandError):
+    """The server didn't send us the identity in time."""
