@@ -240,7 +240,7 @@ class M2MClient:
             port1=-1,
             node2=node2,
             port2=-1,
-            requester=identity or b'',
+            requester=identity,
             forwarded=0
         )
         return result
