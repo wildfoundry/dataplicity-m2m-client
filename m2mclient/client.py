@@ -176,7 +176,14 @@ class M2MClient:
 
     def get_identity(self, timeout=3):
         """
-        Get the identity, which may block if we haven't received it.
+        Get the client's identity.
+
+        This may block if we haven't received it. Sending the identity
+        is one of the first things the server does, so it's unlikely
+        to block for any significant amount of time. The timeout is
+        there as a precaution; we don't want to wait indefinitely if
+        the server is fubar.
+
         """
         if not self.identity_event.wait(timeout):
             raise NoIdentity(
