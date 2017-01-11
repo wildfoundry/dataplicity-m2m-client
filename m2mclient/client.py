@@ -186,7 +186,7 @@ class M2MClient:
 
         """
         if not self.identity_event.wait(timeout):
-            raise NoIdentity(
+            raise errors.NoIdentity(
                 "the server didn't send use an identity in time"
             )
         return self._identity
