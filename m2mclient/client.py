@@ -134,12 +134,13 @@ class M2MClient:
         self.username = username
         self.password = password
         self.connect_wait = connect_wait
-        self.identity = None
+        self._identity = None
         self.dispatcher = Dispatcher(M2MPacket, instance=self)
         self.command_id = 0
         self.command_events = {}
         self.ws = None
         self.create_ws()
+        self.identity_event = Event()
 
     def create_ws(self):
         self.ws = WebSocket(
@@ -172,6 +173,23 @@ class M2MClient:
         finally:
             self.ws = None
             self.dispatcher.close()
+
+    def get_identity(self, timeout=3):
+        """
+        Get the client's identity.
+
+        This may block if we haven't received a set_identity packet.
+        Sending the identity is one of the first things the server does,
+        so it's unlikely to block for any significant amount of time.
+        The timeout is there as a precaution; we don't want to wait
+        indefinitely if the server is fubar.
+
+        """
+        if not self.identity_event.wait(timeout):
+            raise errors.NoIdentity(
+                "the server didn't send use an identity in time"
+            )
+        return self._identity
 
     def close(self):
         """A graceful close."""
@@ -215,13 +233,14 @@ class M2MClient:
 
     def add_route(self, node1, node2):
         """Create a single route."""
+        identity = self.get_identity()
         result = self.command(
             "command_add_route",
             node1=node1,
             port1=-1,
             node2=node2,
             port2=-1,
-            requester=self.identity or b'',
+            requester=identity,
             forwarded=0
         )
         return result
@@ -245,8 +264,9 @@ class M2MClient:
 
     def set_meta(self, device_id, key, value):
         """Set meta information associated with a device."""
+        identity = self.get_identity()
         result = self.command("command_set_meta",
-                              requester=self.identity or b'',
+                              requester=identity,
                               node=device_id,
                               key=key,
                               value=value)
@@ -254,8 +274,9 @@ class M2MClient:
 
     def get_meta(self, device_id):
         """Get a meta dictionary associated with the device."""
+        identity = self.get_identity()
         result = self.command("command_get_meta",
-                              requester=self.identity or b'',
+                              requester=identity,
                               node=device_id)
         return result
 
@@ -275,7 +296,8 @@ class M2MClient:
     @expose(PacketType.set_identity)
     def handle_set_identitiy(self, identity):
         """The server is informing us of our identity on the network."""
-        self.identity = identity
+        self._identity = identity
+        self.identity_event.set()
 
     @expose(PacketType.welcome)
     def handle_welcome(self):
