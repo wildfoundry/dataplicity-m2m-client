@@ -174,7 +174,7 @@ class M2MClient:
             self.ws = None
             self.dispatcher.close()
 
-    def get_identity(self, timeout=3):
+    def get_identity(self, timeout=10):
         """
         Get the client's identity.
 
