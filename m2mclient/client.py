@@ -32,6 +32,41 @@ class WebSocket(WebSocketBaseClient):
     def dispatcher(self):
         return self._dispatcher()
 
+    # This method from the base class has been over-ridden to work around
+    # an issue where it reads more data than required from the ssl socket,
+    # which causes the websocket frame parser to discard some bytes.
+    # - WM 1/3/17
+    def once(self):
+        """
+        Performs the operation of reading from the underlying
+        connection in order to feed the stream of bytes.
+
+        We start with a small size of two bytes to be read
+        from the connection so that we can quickly parse an
+        incoming frame header. Then the stream indicates
+        whatever size must be read from the connection since
+        it knows the frame payload length.
+
+        It returns `False` if an error occurred at the
+        socket level or during the bytes processing. Otherwise,
+        it returns `True`.
+        """
+        if self.terminated:
+            logger.debug("WebSocket is already terminated")
+            return False
+
+        try:
+            b = self.sock.recv(self.reading_buffer_size)
+        except (socket.error, OSError, pyOpenSSLError) as e:
+            self.unhandled_error(e)
+            return False
+        else:
+            if not self.process(b):
+                return False
+
+        return True
+
+
     def start(self):
         self._thread = Thread(target=self.run_thread)
         self._thread.daemon = True
