@@ -1,9 +1,16 @@
 import weakref
 import logging
+import socket
 from threading import Event
 from threading import Thread
 
 from ws4py.client import WebSocketBaseClient
+
+try:
+    from OpenSSL.SSL import Error as pyOpenSSLError
+except ImportError:
+    class pyOpenSSLError(Exception):
+        pass
 
 from .dispatcher import Dispatcher
 from .dispatcher import PacketFormatError
