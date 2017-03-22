@@ -72,6 +72,10 @@ class WebSocketThread(Thread):
         """Send binary message (low level interface)."""
         self.ws.send_binary(data)
 
+    def close(self):
+        """Close the websocket."""
+        self.ws.close()
+
 
 class CommandResult(object):
     """
