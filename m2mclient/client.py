@@ -49,7 +49,7 @@ class WebSocketThread(Thread):
                     self.running = True
                     self.on_startup()
                 elif event.name == 'binary':
-                    self.on_binary(event)
+                    self.on_binary(event.data)
         finally:
             self.ready_event.set()
             self.running = False
