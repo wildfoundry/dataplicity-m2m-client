@@ -22,6 +22,7 @@ class WebSocketThread(Thread):
     """Websocket thread."""
 
     def __init__(self, url, dispatcher, on_startup=None):
+        super().__init__()
         self.ws = WebSocket(url)
         self._dispatcher = weakref.ref(dispatcher)
         self.on_startup = on_startup or (lambda: None)
@@ -29,16 +30,18 @@ class WebSocketThread(Thread):
         self.ready_event = Event()
         self.error = None
         self.daemon = True
-        super().__init__()
 
     @property
     def dispatcher(self):
         return self._dispatcher()
 
     def run(self):
+        """Main thread loop."""
         try:
             for event in self.ws:
-                if event.name == 'disconnected':
+                if event.name == 'rejected':
+                    self.error = event.reason
+                elif event.name == 'disconnected':
                     if not event.graceful:
                         self.error = event.reason
                 elif event.name == 'ready':
@@ -52,6 +55,7 @@ class WebSocketThread(Thread):
             self.running = False
 
     def on_binary(self, data):
+        """Called with a binary message."""
         if not self.dispatcher:
             return
         try:
@@ -65,6 +69,7 @@ class WebSocketThread(Thread):
             self.dispatcher.dispatch_packet(packet)
 
     def send(self, data):
+        """Send binary message (low level interface)."""
         self.ws.send_binary(data)
 
 
