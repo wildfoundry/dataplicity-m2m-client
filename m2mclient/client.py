@@ -4,7 +4,7 @@ import socket
 from threading import Event
 from threading import Thread
 
-from lomond import WebSocket, events
+from lomond import WebSocket
 
 from .dispatcher import Dispatcher
 from .dispatcher import PacketFormatError
