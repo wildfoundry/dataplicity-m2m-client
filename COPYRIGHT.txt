@@ -1,0 +1,3 @@
+Copyright (C) WILDFOUNDRY LIMITED.  All rights reserved.
+Redistribution or use of this project in whole or in part is not permitted
+without the written consent of WILDFOUNDRY LIMITED.
