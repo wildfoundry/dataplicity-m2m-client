@@ -27,7 +27,7 @@ setup(
     exclude_package_data={'': ['_*', 'docs/*']},
     classifiers=classifiers,
     install_requires=[
-        'lomond==0.1.6a3',
+        'lomond==0.1.6',
         'wsaccel==0.6.2'
     ]
 )
