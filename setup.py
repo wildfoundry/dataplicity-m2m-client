@@ -27,7 +27,7 @@ setup(
     exclude_package_data={'': ['_*', 'docs/*']},
     classifiers=classifiers,
     install_requires=[
-        'ws4py==0.3.5',
+        'lomond==0.1.6',
         'wsaccel==0.6.2'
     ]
 )

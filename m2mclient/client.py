@@ -4,13 +4,7 @@ import socket
 from threading import Event
 from threading import Thread
 
-from ws4py.client import WebSocketBaseClient
-
-try:
-    from OpenSSL.SSL import Error as pyOpenSSLError
-except ImportError:
-    class pyOpenSSLError(Exception):
-        pass
+from lomond import WebSocket
 
 from .dispatcher import Dispatcher
 from .dispatcher import PacketFormatError
@@ -24,89 +18,48 @@ log = logging.getLogger('m2m')
 
 
 
-class WebSocket(WebSocketBaseClient):
+class WebSocketThread(Thread):
     """Websocket thread."""
 
     def __init__(self, url, dispatcher, on_startup=None):
+        super().__init__()
+        self.ws = WebSocket(url)
         self._dispatcher = weakref.ref(dispatcher)
         self.on_startup = on_startup or (lambda: None)
         self.running = False
         self.ready_event = Event()
-        self.exc = None
-        super().__init__(url)
+        self.error = None
+        self.daemon = True
 
     @property
     def dispatcher(self):
         return self._dispatcher()
 
-    # This method from the base class has been over-ridden to work around
-    # an issue where it reads more data than required from the ssl socket,
-    # which causes the websocket frame parser to discard some bytes.
-    # - WM 1/3/17
-    def once(self):
-        """
-        Performs the operation of reading from the underlying
-        connection in order to feed the stream of bytes.
-
-        We start with a small size of two bytes to be read
-        from the connection so that we can quickly parse an
-        incoming frame header. Then the stream indicates
-        whatever size must be read from the connection since
-        it knows the frame payload length.
-
-        It returns `False` if an error occurred at the
-        socket level or during the bytes processing. Otherwise,
-        it returns `True`.
-        """
-        if self.terminated:
-            logger.debug("WebSocket is already terminated")
-            return False
-
+    def run(self):
+        """Main thread loop."""
         try:
-            b = self.sock.recv(self.reading_buffer_size)
-        except (socket.error, OSError, pyOpenSSLError) as e:
-            self.unhandled_error(e)
-            return False
-        else:
-            if not self.process(b):
-                return False
-
-        return True
-
-
-    def start(self):
-        self._thread = Thread(target=self.run_thread)
-        self._thread.daemon = True
-        self._thread.start()
-
-    def join(self, timeout=None):
-        """Attempt to join thread, return True if joined."""
-        self._thread.join(timeout)
-        return not self._thread.is_alive()
-
-    def run_thread(self):
-        try:
-            try:
-                self.connect()
-            except Exception as error:
-                log.warning(error)
-                self.exc = error
-                self.ready_event.set()
-            else:
-                self.running = True
-                self.on_startup()
-                self.ready_event.set()
-                self.run()
+            for event in self.ws:
+                if event.name == 'rejected':
+                    self.error = event.reason
+                elif event.name == 'disconnected':
+                    if not event.graceful:
+                        self.error = event.reason
+                elif event.name == 'ready':
+                    self.ready_event.set()
+                    self.running = True
+                    self.on_startup()
+                elif event.name == 'binary':
+                    self.on_binary(event.data)
         finally:
+            self.ready_event.set()
             self.running = False
 
-    def received_message(self, msg):
-        if not isinstance(msg.data, bytes):
-            return
+    def on_binary(self, data):
+        """Called with a binary message."""
         if not self.dispatcher:
             return
         try:
-            packet = M2MPacket.from_bytes(msg.data)
+            packet = M2MPacket.from_bytes(data)
         except PacketFormatError as packet_error:
             # We received a badly formatted packet from the server
             # Inconceivable!
@@ -115,6 +68,13 @@ class WebSocket(WebSocketBaseClient):
             log.debug(' <- %r', packet)
             self.dispatcher.dispatch_packet(packet)
 
+    def send(self, data):
+        """Send binary message (low level interface)."""
+        self.ws.send_binary(data)
+
+    def close(self):
+        """Close the websocket."""
+        self.ws.close()
 
 
 class CommandResult(object):
@@ -185,12 +145,11 @@ class M2MClient:
         self.identity_event = Event()
 
     def create_ws(self):
-        self.ws = WebSocket(
+        self.ws = WebSocketThread(
             self.url,
             self.dispatcher,
             on_startup=self.on_startup
         )
-        self.ws.sock.settimeout(3)
 
     def __enter__(self):
         log.debug('connecting to %s', self.url)
@@ -198,9 +157,7 @@ class M2MClient:
         self.ws.ready_event.wait(self.connect_wait)
         if not self.ws.running:
             raise errors.ConnectionError(
-                str(self.ws.exc)
-                if self.ws.exc
-                else "unable to connect"
+                self.ws.error or 'unable to connect'
             )
         return self
 
@@ -243,7 +200,7 @@ class M2MClient:
         """Send a packet."""
         packet = M2MPacket.create(packet_type, *args, **kwargs)
         if self.ws.running:
-            self.ws.send(packet.as_bytes, binary=True)
+            self.ws.send(packet.as_bytes)
             log.debug(' -> %r', packet)
         else:
             log.debug(' -> %r (server gone)', packet)
