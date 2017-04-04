@@ -91,7 +91,7 @@ class CommandResult(object):
     def __repr__(self):
         return "CommandResult({!r})".format(self.name)
 
-    def set_result(self, result):
+    def set(self, result):
         """Set the result from another thread."""
         log.debug('command result %r', result)
         self._result = result
@@ -169,7 +169,7 @@ class M2MClient:
 
             while self.command_events:
                 command_id, result = self.command_events.popitem()
-                result.set_result(None)
+                result.set(None)
 
     def get_identity(self, timeout=10):
         """
@@ -284,9 +284,9 @@ class M2MClient:
             command_result = self.command_events.pop(command_id)
         except KeyError:
             log.error('received a response to an unknown event')
-            command.set_result(None)
+            command_result.set(None)
         else:
-            command.set_result(result)
+            command_result.set(result)
 
     @expose(PacketType.set_identity)
     def handle_set_identitiy(self, identity):
