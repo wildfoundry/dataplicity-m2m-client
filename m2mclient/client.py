@@ -50,9 +50,8 @@ class WebSocketThread(Thread):
                 elif event.name == 'binary':
                     self.on_binary(event.data)
         finally:
-            self.ready_event.set()
             self.running = False
-            self._client.on_thread_close()
+            self.ready_event.set()
 
     def on_binary(self, data):
         """Called with a binary message."""
@@ -92,14 +91,9 @@ class CommandResult(object):
     def __repr__(self):
         return "CommandResult({!r})".format(self.name)
 
-    def set(self, result):
+    def set_result(self, result):
         """Set the result from another thread."""
-        self._result = result
-        self._event.set()
-
-    def set_fail(self, result):
-        """Set a fail result."""
-        #
+        log.debug('command result %r', result)
         self._result = result
         self._event.set()
 
@@ -117,7 +111,7 @@ class CommandResult(object):
             raise errors.CommandTimeout('command timed out')
         if self._result is None:
             raise errors.CommandError(
-                'no result available (connection closed before it was received)'
+                'invalid response'
             )
         if not isinstance(self._result, dict):
             raise errors.CommandFail('invalid response')
@@ -131,7 +125,7 @@ class CommandResult(object):
 class M2MClient:
     """A client for the M2M protocol."""
 
-    def __init__(self, url, username, password, connect_wait=3):
+    def __init__(self, url, username, password, connect_wait=5):
         self.url = url
         self.username = username
         self.password = password
@@ -173,12 +167,9 @@ class M2MClient:
             self.ws = None
             self.dispatcher.close()
 
-    def on_thread_close(self):
-        """Called when WS thread exits."""
-        # Close all command events, so nothing is waiting
-        while self.command_events:
-            command_id, result = self.command_events.popitem()
-            result.set(None)
+            while self.command_events:
+                command_id, result = self.command_events.popitem()
+                result.set_result(None)
 
     def get_identity(self, timeout=10):
         """
@@ -210,7 +201,7 @@ class M2MClient:
             self.ws.send(packet.as_bytes)
             log.debug(' -> %r', packet)
         else:
-            log.debug(' -> %r (server gone)', packet)
+            log.warning(' -> %r (server gone)', packet)
 
     def command(self, command_packet, *args, **kwargs):
         """
@@ -292,12 +283,10 @@ class M2MClient:
         try:
             command_result = self.command_events.pop(command_id)
         except KeyError:
-            log.warning('received a response to an unknown event')
+            log.error('received a response to an unknown event')
+            command.set_result(None)
         else:
-            if result.get(b'status') == b'ok':
-                command_result.set(result)
-            else:
-                command_result.set_fail(result)
+            command.set_result(result)
 
     @expose(PacketType.set_identity)
     def handle_set_identitiy(self, identity):
