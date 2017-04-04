@@ -1,6 +1,5 @@
 import weakref
 import logging
-import socket
 from threading import Event
 from threading import Thread
 
@@ -21,10 +20,10 @@ log = logging.getLogger('m2m')
 class WebSocketThread(Thread):
     """Websocket thread."""
 
-    def __init__(self, url, dispatcher, on_startup=None):
+    def __init__(self, url, client, on_startup=None):
         super().__init__()
         self.ws = WebSocket(url)
-        self._dispatcher = weakref.ref(dispatcher)
+        self._client = weakref.ref(client)
         self.on_startup = on_startup or (lambda: None)
         self.running = False
         self.ready_event = Event()
@@ -32,8 +31,8 @@ class WebSocketThread(Thread):
         self.daemon = True
 
     @property
-    def dispatcher(self):
-        return self._dispatcher()
+    def client(self):
+        return self._client()
 
     def run(self):
         """Main thread loop."""
@@ -45,18 +44,19 @@ class WebSocketThread(Thread):
                     if not event.graceful:
                         self.error = event.reason
                 elif event.name == 'ready':
-                    self.ready_event.set()
                     self.running = True
+                    self.ready_event.set()
                     self.on_startup()
                 elif event.name == 'binary':
                     self.on_binary(event.data)
         finally:
             self.ready_event.set()
             self.running = False
+            self._client.on_thread_close()
 
     def on_binary(self, data):
         """Called with a binary message."""
-        if not self.dispatcher:
+        if not self.client:
             return
         try:
             packet = M2MPacket.from_bytes(data)
@@ -66,7 +66,7 @@ class WebSocketThread(Thread):
             log.warning('bad packet (%s)', packet_error)
         else:
             log.debug(' <- %r', packet)
-            self.dispatcher.dispatch_packet(packet)
+            self.client.dispatcher.dispatch_packet(packet)
 
     def send(self, data):
         """Send binary message (low level interface)."""
@@ -147,7 +147,7 @@ class M2MClient:
     def create_ws(self):
         self.ws = WebSocketThread(
             self.url,
-            self.dispatcher,
+            self,
             on_startup=self.on_startup
         )
 
@@ -172,6 +172,13 @@ class M2MClient:
         finally:
             self.ws = None
             self.dispatcher.close()
+
+    def on_thread_close(self):
+        """Called when WS thread exits."""
+        # Close all command events, so nothing is waiting
+        while self.command_events:
+            command_id, result = self.command_events.popitem()
+            result.set(None)
 
     def get_identity(self, timeout=10):
         """
