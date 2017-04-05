@@ -45,8 +45,8 @@ class WebSocketThread(Thread):
                         self.error = event.reason
                 elif event.name == 'ready':
                     self.running = True
-                    self.ready_event.set()
                     self.on_startup()
+                    self.ready_event.set()
                 elif event.name == 'binary':
                     self.on_binary(event.data)
         finally:
@@ -56,6 +56,7 @@ class WebSocketThread(Thread):
     def on_binary(self, data):
         """Called with a binary message."""
         if not self.client:
+            log.warning('ws message %r ignored', data)
             return
         try:
             packet = M2MPacket.from_bytes(data)
