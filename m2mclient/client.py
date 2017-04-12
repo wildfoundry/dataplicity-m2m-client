@@ -136,8 +136,8 @@ class M2MClient:
         self.command_id = 0
         self.command_events = {}
         self.ws = None
-        self.create_ws()
         self.identity_event = Event()
+        self.create_ws()
 
     def create_ws(self):
         self.ws = WebSocketThread(
