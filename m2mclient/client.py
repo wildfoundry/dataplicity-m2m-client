@@ -1,6 +1,5 @@
 import weakref
 import logging
-import socket
 from threading import Event
 from threading import Thread
 
@@ -21,10 +20,10 @@ log = logging.getLogger('m2m')
 class WebSocketThread(Thread):
     """Websocket thread."""
 
-    def __init__(self, url, dispatcher, on_startup=None):
+    def __init__(self, url, client, on_startup=None):
         super().__init__()
         self.ws = WebSocket(url)
-        self._dispatcher = weakref.ref(dispatcher)
+        self._client = weakref.ref(client)
         self.on_startup = on_startup or (lambda: None)
         self.running = False
         self.ready_event = Event()
@@ -32,8 +31,8 @@ class WebSocketThread(Thread):
         self.daemon = True
 
     @property
-    def dispatcher(self):
-        return self._dispatcher()
+    def client(self):
+        return self._client()
 
     def run(self):
         """Main thread loop."""
@@ -45,18 +44,19 @@ class WebSocketThread(Thread):
                     if not event.graceful:
                         self.error = event.reason
                 elif event.name == 'ready':
-                    self.ready_event.set()
                     self.running = True
                     self.on_startup()
+                    self.ready_event.set()
                 elif event.name == 'binary':
                     self.on_binary(event.data)
         finally:
-            self.ready_event.set()
             self.running = False
+            self.ready_event.set()
 
     def on_binary(self, data):
         """Called with a binary message."""
-        if not self.dispatcher:
+        if not self.client:
+            log.warning('ws message %r ignored', data)
             return
         try:
             packet = M2MPacket.from_bytes(data)
@@ -66,7 +66,7 @@ class WebSocketThread(Thread):
             log.warning('bad packet (%s)', packet_error)
         else:
             log.debug(' <- %r', packet)
-            self.dispatcher.dispatch_packet(packet)
+            self.client.dispatcher.dispatch_packet(packet)
 
     def send(self, data):
         """Send binary message (low level interface)."""
@@ -94,12 +94,7 @@ class CommandResult(object):
 
     def set(self, result):
         """Set the result from another thread."""
-        self._result = result
-        self._event.set()
-
-    def set_fail(self, result):
-        """Set a fail result."""
-        #
+        log.debug('command result %r', result)
         self._result = result
         self._event.set()
 
@@ -117,7 +112,7 @@ class CommandResult(object):
             raise errors.CommandTimeout('command timed out')
         if self._result is None:
             raise errors.CommandError(
-                'no result available (connection closed before it was received)'
+                'invalid response'
             )
         if not isinstance(self._result, dict):
             raise errors.CommandFail('invalid response')
@@ -131,7 +126,7 @@ class CommandResult(object):
 class M2MClient:
     """A client for the M2M protocol."""
 
-    def __init__(self, url, username, password, connect_wait=3):
+    def __init__(self, url, username, password, connect_wait=5):
         self.url = url
         self.username = username
         self.password = password
@@ -141,13 +136,13 @@ class M2MClient:
         self.command_id = 0
         self.command_events = {}
         self.ws = None
-        self.create_ws()
         self.identity_event = Event()
+        self.create_ws()
 
     def create_ws(self):
         self.ws = WebSocketThread(
             self.url,
-            self.dispatcher,
+            self,
             on_startup=self.on_startup
         )
 
@@ -172,6 +167,10 @@ class M2MClient:
         finally:
             self.ws = None
             self.dispatcher.close()
+
+            while self.command_events:
+                command_id, result = self.command_events.popitem()
+                result.set(None)
 
     def get_identity(self, timeout=10):
         """
@@ -203,7 +202,7 @@ class M2MClient:
             self.ws.send(packet.as_bytes)
             log.debug(' -> %r', packet)
         else:
-            log.debug(' -> %r (server gone)', packet)
+            log.warning(' -> %r (server gone)', packet)
 
     def command(self, command_packet, *args, **kwargs):
         """
@@ -285,12 +284,10 @@ class M2MClient:
         try:
             command_result = self.command_events.pop(command_id)
         except KeyError:
-            log.warning('received a response to an unknown event')
+            log.error('received a response to an unknown event')
+            command_result.set(None)
         else:
-            if result.get(b'status') == b'ok':
-                command_result.set(result)
-            else:
-                command_result.set_fail(result)
+            command_result.set(result)
 
     @expose(PacketType.set_identity)
     def handle_set_identitiy(self, identity):
