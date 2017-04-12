@@ -158,12 +158,8 @@ class M2MClient:
 
     def __exit__(self, exc_type, exc_val, exc_tb):
         try:
-            # Ask politely to leave
+            # Close the websocket
             self.close()
-            # Wait until we're done
-            if not self.ws.join(1):
-                # Force a close if we didn't complete
-                self.ws.close()
         finally:
             self.ws = None
             self.dispatcher.close()
@@ -193,7 +189,7 @@ class M2MClient:
         """A graceful close."""
         # If everything is working, the server will kick us in a few
         # milliseconds.
-        self.send('request_leave')
+        self.ws.close()
 
     def send(self, packet_type, *args, **kwargs):
         """Send a packet."""
