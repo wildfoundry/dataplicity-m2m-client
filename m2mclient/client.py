@@ -50,6 +50,8 @@ class WebSocketThread(Thread):
                         self.ready_event.set()
                     elif event.name == 'binary':
                         self.on_binary(event.data)
+        except Exception as errror:
+            log.exception('error in m2m thread')
         finally:
             self.running = False
             self.ready_event.set()
