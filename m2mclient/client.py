@@ -37,18 +37,21 @@ class WebSocketThread(Thread):
     def run(self):
         """Main thread loop."""
         try:
-            for event in self.ws:
-                if event.name == 'rejected':
-                    self.error = event.reason
-                elif event.name == 'disconnected':
-                    if not event.graceful:
+            with self.ws:
+                for event in self.ws:
+                    if event.name == 'rejected':
                         self.error = event.reason
-                elif event.name == 'ready':
-                    self.running = True
-                    self.on_startup()
-                    self.ready_event.set()
-                elif event.name == 'binary':
-                    self.on_binary(event.data)
+                    elif event.name == 'disconnected':
+                        if not event.graceful:
+                            self.error = event.reason
+                    elif event.name == 'ready':
+                        self.running = True
+                        self.on_startup()
+                        self.ready_event.set()
+                    elif event.name == 'binary':
+                        self.on_binary(event.data)
+        except Exception:
+            log.exception('error in m2m thread')
         finally:
             self.running = False
             self.ready_event.set()
