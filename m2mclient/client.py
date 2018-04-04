@@ -1,9 +1,11 @@
 import weakref
 import logging
+import socket
 from threading import Event
 from threading import Thread
 
 from lomond import WebSocket
+from lomond.constants import USER_AGENT as LOMOND_USER_AGENT
 
 from .dispatcher import Dispatcher
 from .dispatcher import PacketFormatError
@@ -20,9 +22,14 @@ log = logging.getLogger('m2m')
 class WebSocketThread(Thread):
     """Websocket thread."""
 
+    AGENT = "{} {}".format(
+        socket.gethostname(),
+        LOMOND_USER_AGENT
+    )
+
     def __init__(self, url, client, on_startup=None):
         super().__init__()
-        self.ws = WebSocket(url)
+        self.ws = WebSocket(url, agent=self.AGENT)
         self._client = weakref.ref(client)
         self.on_startup = on_startup or (lambda: None)
         self.running = False
